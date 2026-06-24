@@ -89,5 +89,7 @@ HEX_LENGTHS: dict[int, list[str]] = {
     128: ["SHA-512", "SHA3-512", "BLAKE2b-512", "Whirpool"],
 }
 
+pass
+
 if __name__ == "__main__":
     sys.exit(main())
