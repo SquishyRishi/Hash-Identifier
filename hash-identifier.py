@@ -11,6 +11,8 @@ from typing import Literal
 from rich.console import Console
 from rich.table import Table
 
+#----------------------------------------------------------------------------------
+
 Confidence = Literal["High", "Medium", "Low"]
 
 @dataclass(frozen=True, slots=True)
@@ -39,11 +41,12 @@ class Candidates:
     #         and self.explanation == other.explanation
     #     )
 
+#----------------------------------------------------------------------------------
 
 PREFIX_RULES: list[tuple[str,str]] = [
     ("$argon2i$", "Argon2i"),
     ("$argon2d$", "Argon2d"),
-    ("$argon2id$", "Argon2od"),
+    ("$argon2id$", "Argon2id"),
     
     ("$2a$", "bcrypt - 2a variant"),
     ("$2b$", "bcrypt - 2b variant"),
@@ -74,8 +77,9 @@ PREFIX_RULES: list[tuple[str,str]] = [
     ("{CRYPT}", "LDAP CRYPT"),
 ]
 
+#----------------------------------------------------------------------------------
+
 HEX_CHARSET: frozenset[str] = frozenset("0123456789abcdefABCDEF")
-UPPER_CHARSET: frozenset[str] = frozenset("0123456789ABCDEF")
 
 HEX_LENGTHS: dict[int, list[str]] = {
     16: ["MySQL323", "CRC-64"],
@@ -89,6 +93,128 @@ HEX_LENGTHS: dict[int, list[str]] = {
     128: ["SHA-512", "SHA3-512", "BLAKE2b-512", "Whirpool"],
 }
 
+#----------------------------------------------------------------------------------
+
+def _is_hex(text:str) -> bool:
+    return bool(text) and all(c in HEX_CHARSET for c in text)
+
+#----------------------------------------------------------------------------------
+
+UPPER_CHARSET: frozenset[str] = frozenset("0123456789ABCDEF")
+_MYSQL5_HEX_LENGTH = 40
+_MYSQL5_TOTAL_LENGTH = _MYSQL5_HEX_LENGTH + 1
+
+def _is_mysql5(text:str) -> bool:
+    if len(text) != _MYSQL5_TOTAL_LENGTH or not text.startswith("*"):
+        return False
+    
+    body = text[1:]
+    return all(c in UPPER_CHARSET for c in body)
+
+#----------------------------------------------------------------------------------
+
+_DES_CRYPT_CHARSET: frozenset[str] = frozenset(
+    "./0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+)
+_DES_CRYPT_TOTAL_LENGTH = 13
+
+def _is_des_crypt(text:str) -> bool:
+    if len(text) != _DES_CRYPT_TOTAL_LENGTH:
+        return False
+    
+    return all(c in _DES_CRYPT_CHARSET for c in text)
+
+#----------------------------------------------------------------------------------
+
+def identification(input:str) -> list[Candidates]:
+    text = input.strip()
+    
+    if not text:
+        return []
+    
+    for prefix, algorithm in PREFIX_RULES:
+        if text.startswith(prefix):
+            return [Candidates(algorithm = algorithm, confidence = "High")]
+
+    if _is_mysql5(text):
+        return[Candidates(algorithm = "MYSQL5", confidence = "High")]
+    
+    if _is_des_crypt(text):
+        return[Candidates(algorithm = "DES crypt", confidence="Medium")]
+    
+    if _is_hex(text):
+        algorithms = HEX_LENGTHS.get(len(text), [])
+        candidates: list[Candidates] = []
+        for i, algorithm in enumerate(algorithms):
+            confidence: Confidence = "Medium" if i == 0 else "Low"
+            candidates.append(
+                Candidates(algorithm = algorithm, confidence = confidence)
+            )
+        return candidates
+    
+    if text.startswith("$"):
+        rest = text[1:]
+        if "$" in rest:
+            algo = rest.split("$", 1)[0]
+            if algo and all(c.isalnum() or c in "-_" for c in algo):
+                return [
+                    Candidates(
+                        algorithm = f"PHC String ({algo})",
+                        confidence = "Low"
+                        )
+                ]
+    
+    return []
+
+
+def _argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog = "hashid",
+        description = (
+            "Identify a hash string by prefix, length, and charset."
+            "Returns candidates with confidence ratings."
+        )
+    )
+    
+    parser.add_argument(
+        "hash",
+        help = 
+        "The hash string to identify - wrap in single quotes if it contains $."
+    )
+    
+    parser.add_argument(
+        "--top",
+        "-n",
+        type = int,
+        default = 5,
+        help = "Show at most this many candidates (default: 5)."
+    )
+    return parser
+
+
+def _render_table(
+    input:str,
+    candidates: list[Candidates],
+    console: Console
+) -> None:
+    table = Table(
+        title = f"Candidates for: {input.strip()}",
+        title_style = "blue",
+        show_lines = False
+    )
+    
+    table.add_column("Algorithm", style = "bold white", no_wrap = True)
+    table.add_column("Confidence Rating", no_wrap = True)
+    
+    for candidate in candidates:
+        table.add_row(candidate.algorithm, candidate.confidence)
+    
+    console.print(table)
+    
+def main() -> int:
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
