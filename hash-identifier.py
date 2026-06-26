@@ -214,7 +214,24 @@ def _render_table(
     console.print(table)
     
 def main() -> int:
+    parser = _argument_parser()
+    args = parser.parse_args()
+    console = Console()
+    
+    candidates = identification(args.hash)
+    
+    if not candidates:
+        console.print(
+            "Identification is not possible as the input did not match "
+            "a known prefix or hex length."
+        )
+        return 1
+    
+    trimmed = candidates[: args.top]
+    _render_table(args.hash, trimmed, console)
+    
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
